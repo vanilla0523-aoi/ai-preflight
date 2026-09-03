@@ -1,6 +1,7 @@
 import type { Detection, Detector, RiskLevel, ScanResult, Severity } from "./types";
 import { detectApiKey } from "./detectors/apiKey";
 import { detectAwsKey } from "./detectors/awsKey";
+import { detectCreditCard } from "./detectors/creditCard";
 import { detectEmail } from "./detectors/email";
 import { detectIpAddress } from "./detectors/ipAddress";
 import { detectOrganizationPolicy } from "./detectors/organizationPolicy";
@@ -18,6 +19,7 @@ import { maskText } from "./masker";
 const detectors: Detector[] = [
   detectApiKey,
   detectAwsKey,
+  detectCreditCard,
   detectEmail,
   detectPhone,
   detectIpAddress,
