@@ -1,146 +1,118 @@
 # AI Preflight
 
-**AIに送る前に、安全確認。**
+> **AIに送る前に、安全確認。** — ChatGPT / Claude / Gemini などの生成AIへ文章を送信する前に、個人情報・認証情報・社内NG情報をチェックし、機密箇所をマスクした **Safe Prompt** を生成するPoC Webアプリケーション。
 
-ChatGPT / Claude / Gemini などの生成AIへ文章を送信する前に、個人情報・認証情報・社内NG情報が含まれていないかをチェックし、機密箇所をマスクした **Safe Prompt** を生成するPoC（概念実証）Webアプリケーションです。
+## 1. アイデア
 
-## 背景
+- **ひとことで:** 生成AIへの「送信前チェック」を行うセキュリティツール
+- **想定ユーザー:** 企業内で生成AIを業務利用する社員（エンジニア・営業・CS・PM・バックオフィスなど）
+- **解決したい課題:** 生成AIの業務利用時に、個人情報・APIキー・社外秘情報を意図せず入力してしまうリスク。「AIに何を入力してよいか」のルールは企業ごとに異なり、現状は社員個人の判断と注意喚起に依存している
+- **提供する価値:** AI利用ルールを個人の判断ではなく、組織共通のルールとして機械的に適用できること。ユーザーが「これは入力していい情報か？」を毎回判断する負担を減らす
+- **主な利用場面:** ChatGPTやClaudeへプロンプトを貼り付ける直前の事前チェック
+- **なぜAIとセキュリティか:** 「AIを使わせない」のではなく、**安全に使える仕組みを整える**ことが重要だと考えたため。警告だけで終わらせず、マスク済みのSafe Promptを提示することで、セキュリティと利便性を両立させる
+- **展開可能性:** 一般的な検知に加えて企業独自の「AI入力NGルール」を設定できる構成のため、部署別ポリシー・ブラウザ拡張・AI Gatewayへ発展させられる（→ [Future Improvements](#future-improvements)）
 
-生成AIの業務利用では、「AIを使わせない」という対応ではなく、**安全に使える仕組みを整えること**が重要だと考えています。
+<!-- TODO(あおい): 「アイデアのきっかけとなった体験や観察」を1〜2行で追記 -->
 
-また、AIへ入力してはいけない情報は、メールアドレスやAPIキーのような一般的な機密情報だけではありません。未公開プロジェクト名や顧客名など、**企業ごとに異なる機密情報**が存在します。
+## 2. プロトタイプとデモ
 
-そのため本PoCでは、
+### デモ
 
-- 共通検知ルール（Rule-based Detection）
-- 企業独自の Organization Policy（社内NGルール）
+- **デモURL:** なし（ローカル起動。下記[セットアップ](#5-セットアップ)参照）
+- **デモシナリオ:**
 
-という2層構成を採用しました。人間が毎回ガイドラインを思い出して判断するのではなく、送信前に機械的に確認できる体験を検証します。
+| # | 入力 | 期待結果 |
+| --- | --- | --- |
+| 1 | `ReactのuseEffectについて説明してください。` | **SAFE**（検出なし） |
+| 2 | `API_KEY=sk-xxxx を使ってこのコードを修正して` | **CRITICAL**（API Key検知。Safe Prompt: `API_KEY=[API_KEY] を使って…`） |
+| 3 | `Project Ravenの仕様について相談したい` | **HIGH**（社内ルール違反：未公開プロジェクト名） |
 
-## 起動方法
+画面の「サンプルを入力」ボタンで、個人名・メールアドレス・APIキー・社内NGワードを一度にデモできる文章を自動入力できます。
+
+### 代表的な利用の流れ
+
+1. **入力:** 生成AIへ送る予定の文章をテキストエリアへ貼り付け、「送信前チェック」を押す
+2. **処理:** ブラウザ内で Rule-based Detection（正規表現＋社内NGワードリスト）を実行し、重複範囲をマージしてリスクを算出
+3. **出力:** Risk Level（SAFE / LOW / HIGH / CRITICAL）、検出結果カード（検出理由つき）、元文章の該当箇所ハイライト、マスク済みSafe Prompt（コピーボタンつき）
+
+### 実装範囲
+
+- **実装済み:** テキスト入力／送信前チェック／Email・API Key・AWS Key・電話番号・IPv4・氏名らしき情報の検出／社内NGワード検出（設定ファイル）／Risk Level・Risk Score／検出理由表示／該当箇所ハイライト／Safe Prompt生成・コピー／サンプル入力
+- **モックまたは簡易実装:** 氏名検出は敬称ベースの簡易パターン（誤検知・漏れを許容する前提）。社内NGルールは管理画面ではなく設定ファイル（`organizationRules.ts`）で管理
+- **未実装（意図的にスコープ外）:** ログイン・DB・診断履歴・管理画面・SSO・ブラウザ拡張・Proxy・DLP連携・Audit Log・LLMによる意味的チェック・クレジットカードのLuhn判定
+- **評価者が確認できる操作手順:** `npm run dev` → http://localhost:3000 → 「サンプルを入力」→「送信前チェック」→ CRITICAL判定と検出5件、Safe Promptが表示されること。CLIでは `npx tsx scripts/scanner-check.ts` でデモ3シナリオの判定を確認できます
+
+## 3. 技術構成
+
+- **全体構成:** Next.js 16 (App Router) / TypeScript / Tailwind CSS 4 の1画面クライアントアプリ。検知処理はすべてブラウザ内で完結し、**APIルートも外部通信も存在しない**
+- **処理の流れ:** `scanner.ts` が detector 群（純関数 `(text) => Detection[]`）を実行 → 重複範囲を severity優先→範囲長優先でマージ → Risk算出 → `masker.ts` が後方から置換してSafe Promptを生成（位置ズレ防止）
+- **使用したAI・モデル:** アプリ実行時にはAI・LLMを使用しない（意図的な設計判断。理由は下記）
+
+```
+src/lib/security/
+  types.ts                 # Detection / ScanResult / OrganizationRule 型
+  detect.ts                # detector実装ヘルパー（マッチ列挙・表示用部分マスク）
+  scanner.ts               # 全detector実行 → 重複マージ → Risk算出
+  masker.ts                # Safe Prompt生成
+  organizationRules.ts     # 社内NGルール設定ファイル（ここを編集して運用）
+  detectors/               # apiKey / awsKey / email / phone / ipAddress /
+                           # organizationPolicy / personName（1ファイル追加で拡張可能）
+```
+
+### 安全性で考慮したこと（このツール自体が漏洩源にならないこと）
+
+- **Raw Promptを外部へ一切送信しない** — 「機密情報がありますか？」とLLMに直接聞く方式は、検知サービス自身が機密情報を外部AIへ送信してしまうため採用しない。将来LLMで意味的チェックを行う場合も **Rule-based detection → masking → LLM analysis** の順とし、マスク後の文章のみを渡す
+- 入力本文をDB・ログ・Analyticsへ出さない（履歴機能なし、`console.log`なし、外部Analytics未導入、Nextの匿名テレメトリも無効化）
+- 検出結果カードにも生の機密情報を出さない（`sk-t************` / `tan***@example.com` のような部分マスク表示）
+- APIキー等の秘密情報をクライアントへ持たない（外部LLM不使用のため、そもそも存在しない）
+
+## 4. 判断・制約・学び
+
+- **優先したこと:** Prompt → Scan → Warning → Safe Prompt という中心体験を1画面で完成させること。DB・認証・管理画面は作らない
+- **作らなかったことと理由:** LLMによる意味的チェック（Raw Promptを外部へ送らない制約を最優先し、PoCではルールベースで主要体験が成立すると判断）／NGルール管理画面（設定ファイルで代替）
+- **うまくいかなかったこと・対処:** 氏名検出で「Project Ravenの**仕様**について」の「仕様」を「仕＋様（敬称）」と誤検知 → 「仕様」「模様」「彼氏」等の除外リストを追加して解消。同種の誤検知は本質的に残るため、完全検知を目指さない前提を画面のDisclaimerにも明示
+- **既知の制約:** 検知は正規表現＋キーワード一致の範囲。文脈依存の機密情報（未公開の経営情報など）は検出できない／電話番号はハイフン区切り形式のみ対象（誤検知抑制のため）
+
+## 5. セットアップ
+
+### 必要な環境
+
+- Node.js 20以上 / npm
+
+### インストールと起動
 
 ```bash
+git clone https://github.com/vanilla0523-aoi/ai-preflight.git
+cd ai-preflight
 npm install
-npm run dev
+npm run dev   # → http://localhost:3000
 ```
 
-ブラウザで http://localhost:3000 を開いてください。
+環境変数・APIキーは**不要**です（外部サービスを一切使用しないため）。
 
-その他のコマンド:
+### 動作確認
 
 ```bash
-npm run lint    # ESLint
-npm run build   # 本番ビルド（lint / build とも通ることを確認済み）
-npx tsx scripts/scanner-check.ts   # Scanner単体の動作確認（デモ3シナリオ）
+npm run lint                        # ESLint（エラーなし）
+npm run build                       # 本番ビルド（通ることを確認済み）
+npx tsx scripts/scanner-check.ts    # Scanner単体でデモ3シナリオを確認
 ```
 
-## 使い方
+ブラウザでは「サンプルを入力」→「送信前チェック」で、CRITICAL判定・検出5件・Safe Prompt生成まで一連の動作を確認できます。
 
-1. 生成AIへ送る予定の文章をテキストエリアへ貼り付ける（「サンプルを入力」でデモ用文章を自動入力できます）
-2. 「送信前チェック」を押す
-3. Risk Level（SAFE / LOW / HIGH / CRITICAL）・検出結果一覧・該当箇所ハイライトを確認する
-4. 「安全化した文章をコピー」で Safe Prompt をコピーし、任意の生成AIへ入力する
+## 6. AI開発ツールの利用
 
-### デモシナリオ
+- **利用したAI開発ツール:** Claude（Cowork）
+- **自分で判断したこと:** 企画・要件定義の全体（検知カテゴリと優先順位、「Raw Promptを外部LLMへ送らない」というセキュリティ制約、Rule-based中心のチェック方式、社内NGルールを特徴とする構成、PoCの完成条件とスコープ）を要件定義書としてまとめ、AIへの実装指示に使用
+- **AIに任せたこと:** 要件定義書に基づくコード実装、動作検証スクリプトの作成と実行、READMEドラフト作成
+- **検証について:** lint / build の通過、デモ3シナリオの判定結果、UIのスクリーンショットまで含めてAI側で検証したうえで、成果物を確認
 
-| 入力 | 結果 |
-| --- | --- |
-| `ReactのuseEffectについて説明してください。` | SAFE |
-| `API_KEY=sk-xxxx を使ってこのコードを修正して` | CRITICAL（API Key検知 → `API_KEY=[API_KEY]`） |
-| `Project Ravenの仕様について相談したい` | HIGH（社内ルール：未公開プロジェクト名） |
-
-## アーキテクチャ
-
-```
-src/
-  app/
-    page.tsx                 # 1画面PoC UI（クライアントコンポーネント）
-  lib/security/
-    types.ts                 # Detection / ScanResult / OrganizationRule 型
-    detect.ts                # detector実装用ヘルパー（マッチ列挙・部分マスク）
-    scanner.ts               # 全detector実行 → 重複マージ → Risk算出
-    masker.ts                # Safe Prompt生成（後方から置換して位置ズレ防止）
-    organizationRules.ts     # 社内NGルール設定ファイル（ここを編集して運用）
-    detectors/
-      apiKey.ts              # API Key / Token / Password / Secret（CRITICAL）
-      awsKey.ts              # AWS Access Key（CRITICAL）
-      email.ts               # メールアドレス（HIGH）
-      phone.ts               # 日本の電話番号（HIGH）
-      ipAddress.ts           # IPv4アドレス（MEDIUM）
-      organizationPolicy.ts  # 社内NGワード（organizationRules.tsを参照）
-      personName.ts          # 敬称付き氏名らしき情報（MEDIUM・誤検知前提）
-```
-
-### detectorの追加方法
-
-`Detector = (text: string) => Detection[]` の純関数を `detectors/` に1ファイル作り、`scanner.ts` の `detectors` 配列へ登録するだけです。
-
-### 社内NGルールの追加方法
-
-`src/lib/security/organizationRules.ts` の配列へオブジェクトを追加します。管理画面・認証はPoCでは実装せず、設定ファイル管理としています。
-
-```ts
-{
-  id: "product-code",
-  label: "商品コード",
-  keywords: ["PRD-2026"],
-  severity: "high",
-  message: "商品コードは外部AIへ送信できません。",
-  maskToken: "[PRODUCT_CODE]",
-}
-```
-
-## 設計意図
-
-- **Prompt → Scan → Warning → Safe Prompt の体験を最優先。** 商用セキュリティ製品ではなく、「AI利用前のセキュリティチェック」という体験が成立するかを確認するPoCです。
-- **警告するだけで終わらない。** NGを出すだけでは「AIを禁止するツール」になってしまうため、必ずSafe Promptを提示し、安全にAIを使い続けられるUXにしています。恐怖を煽るデザイン（黒背景＋ハッカー風）は避け、業務ツールとして自然なUIにしました。
-- **重複検知のマージ。** `API_KEY=sk-xxx` は「KEY=VALUE形式の認証情報」と「sk-形式のAPIキー」の両方にマッチするため、severity優先 → 範囲長優先で1件にマージしています。
-- **誤検知・検知漏れは許容。** 氏名検出は敬称ベースの簡易パターン（＋「仕様」「彼氏」等の除外リスト）で、完全検知は目指していません。画面上のDisclaimerでもその旨を明示しています。
-
-## セキュリティ上の判断
-
-このツール自体が情報漏洩の原因にならないことを最重要の設計方針としています。
-
-- **入力文章を外部へ一切送信しない** — 検知処理はすべてブラウザ内（クライアントサイド）で完結します。APIルートすら存在しません。
-- **入力本文をDBへ保存しない** — 履歴機能なし。ステートはReactのメモリ上のみです。
-- **入力本文をログへ出力しない** — `console.log` 等でRaw Promptを出力するコードはありません。
-- **Analyticsへ送信しない** — 外部Analyticsは未導入。Next.jsの匿名ビルドテレメトリも `next telemetry disable` で無効化済みです（入力内容とは無関係ですが念のため）。
-- **APIキーをブラウザへ露出しない** — 外部LLMを利用しないため、そもそもクライアントに秘密情報が存在しません。
-- **検出結果カードにも生の機密情報を出さない** — 表示用には部分マスク（`sk-t************` / `tan***@example.com`）を使用します。
-
-### なぜLLMに「機密情報はありますか？」と聞かないのか
-
-機密情報を検知するサービス自身が、機密情報を外部AIへ送信してしまうためです。将来LLMによる意味的チェックを導入する場合も、**Rule-based detection → masking → optional LLM analysis** の順とし、マスク後の文章のみをLLMへ渡す構成（Rule + LLM ハイブリッド）を想定しています。
-
-```
-Raw Prompt
-  ↓ Local / Rule Detection
-  ↓ Sensitive Data Masking
-Masked Prompt
-  ↓ LLM Semantic Analysis（将来・任意）
-Final Risk Assessment
-```
-
-## 今回実装しなかったもの
-
-PoCのスコープ外として、以下は意図的に実装していません。
-
-ユーザー登録・ログイン・DB・診断履歴・本格的な管理画面・社員管理・SSO・Active Directory連携・Slack連携・ChatGPT/Claude連携・ブラウザ拡張・Proxy機能・DLP製品連携・Audit Log・LLMによる意味的チェック（Priority 3）・クレジットカード番号のLuhn判定・NGルール設定UI
+<!-- TODO(あおい): 「AIの提案を採用しなかった例」があれば1行追記。なければこのコメントごと削除 -->
 
 ## Future Improvements
 
-- **管理画面** — 管理者が社内NGルール（NGワード・カテゴリ・リスクレベル）をUIから設定
-- **組織単位ポリシー** — 会社・部署別ポリシー（営業部：顧客名・契約金額禁止 / 開発部：APIキー・コードネーム禁止 / 人事部：候補者名・評価情報禁止 など）
-- **ブラウザ拡張** — ChatGPT等へ入力する瞬間に自動チェック
-- **AI Gateway** — 企業からLLMへ送信されるリクエストをProxyし自動検査
-- **LLMによる意味的チェック** — マスク後の文章に対する、正規表現では判断できない機密情報（未公開の経営情報・文脈上センシティブな内容）の検出
-- **Audit Log** — いつ・どのカテゴリの情報が検出されたかを記録（入力本文自体は保存しない設計を検討）
-- **SaaS連携** — Slack / Google Workspace / Microsoft 365 / GitHub 等
+管理画面（NGルールのUI設定）／会社・部署別ポリシー（営業部：顧客名・契約金額禁止、開発部：APIキー・コードネーム禁止 など）／ブラウザ拡張（入力の瞬間に自動チェック）／AI Gateway（LLMへのリクエストをProxyし自動検査）／マスク後文章へのLLM意味的チェック／Audit Log（本文は保存しない設計）／Slack・Google Workspace・GitHub等との連携
 
 ## Disclaimer
 
 本ツールは機密情報の漏洩を完全に防止するものではありません。所属組織のセキュリティポリシーに従って生成AIをご利用ください。
-
-## 技術スタック
-
-Next.js 16 (App Router) / TypeScript / Tailwind CSS 4
