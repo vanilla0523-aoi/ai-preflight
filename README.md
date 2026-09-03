@@ -37,9 +37,9 @@
 
 ### 実装範囲
 
-- **実装済み:** テキスト入力／送信前チェック／Email・API Key・AWS Key・電話番号・IPv4・氏名らしき情報の検出／社内NGワード検出（設定ファイル）／Risk Level・Risk Score／検出理由表示／該当箇所ハイライト／Safe Prompt生成・コピー／サンプル入力
+- **実装済み:** テキスト入力／送信前チェック／Email・API Key・AWS Key・電話番号・IPv4・クレジットカード番号（Luhn検証）・氏名らしき情報の検出／社内NGワード検出（設定ファイル）／Risk Level・Risk Score／検出理由表示／該当箇所ハイライト／Safe Prompt生成・コピー／サンプル入力／Scannerのユニットテスト（vitest・14ケース）
 - **モックまたは簡易実装:** 氏名検出は敬称ベースの簡易パターン（誤検知・漏れを許容する前提）。社内NGルールは管理画面ではなく設定ファイル（`organizationRules.ts`）で管理
-- **未実装（意図的にスコープ外）:** ログイン・DB・診断履歴・管理画面・SSO・ブラウザ拡張・Proxy・DLP連携・Audit Log・LLMによる意味的チェック・クレジットカードのLuhn判定
+- **未実装（意図的にスコープ外）:** ログイン・DB・診断履歴・管理画面・SSO・ブラウザ拡張・Proxy・DLP連携・Audit Log・LLMによる意味的チェック
 - **評価者が確認できる操作手順:** `npm run dev` → http://localhost:3000 → 「サンプルを入力」→「送信前チェック」→ CRITICAL判定と検出5件、Safe Promptが表示されること。CLIでは `npx tsx scripts/scanner-check.ts` でデモ3シナリオの判定を確認できます
 
 ## 3. 技術構成
@@ -55,7 +55,8 @@ src/lib/security/
   scanner.ts               # 全detector実行 → 重複マージ → Risk算出
   masker.ts                # Safe Prompt生成
   organizationRules.ts     # 社内NGルール設定ファイル（ここを編集して運用）
-  detectors/               # apiKey / awsKey / email / phone / ipAddress /
+  scanner.test.ts          # ユニットテスト（デモシナリオ・マージ・誤検知抑制など14ケース）
+  detectors/               # apiKey / awsKey / email / phone / ipAddress / creditCard /
                            # organizationPolicy / personName（1ファイル追加で拡張可能）
 ```
 
@@ -93,6 +94,7 @@ npm run dev   # → http://localhost:3000
 ### 動作確認
 
 ```bash
+npm test                            # ユニットテスト（vitest・14ケース）
 npm run lint                        # ESLint（エラーなし）
 npm run build                       # 本番ビルド（通ることを確認済み）
 npx tsx scripts/scanner-check.ts    # Scanner単体でデモ3シナリオを確認
