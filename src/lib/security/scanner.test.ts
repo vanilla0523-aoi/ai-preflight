@@ -98,3 +98,25 @@ describe("scanner: 重複マージとマスク位置", () => {
     expect(r.riskScore).toBe(150);
   });
 });
+
+describe("scanner: 結果の安定性", () => {
+  it("同じ入力を再スキャンしても Detection ID が変わらない（Reactのkeyが安定する）", () => {
+    const text = "連絡先 tanaka@example.com / API_KEY=sk-test-abcdef123456";
+    const first = scanText(text).detections.map((d) => d.id);
+    const second = scanText(text).detections.map((d) => d.id);
+    expect(second).toEqual(first);
+    // ID は検出位置から決まるため、同一スキャン内で重複しない
+    expect(new Set(first).size).toBe(first.length);
+  });
+
+  it("detector が指定した display（表示用マスク）が失われない", () => {
+    const r = scanText("mail@example.com");
+    expect(r.detections[0].display).toBe("mai***@example.com");
+  });
+
+  it("検出は必ず開始位置の昇順で返る", () => {
+    const r = scanText("Project Raven と tanaka@example.com と 03-1234-5678");
+    const starts = r.detections.map((d) => d.start);
+    expect([...starts].sort((a, b) => a - b)).toEqual(starts);
+  });
+});

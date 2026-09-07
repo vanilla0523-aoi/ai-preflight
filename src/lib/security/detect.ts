@@ -5,8 +5,6 @@ import type { Detection, Severity } from "./types";
  * 各 detector は「正規表現でマッチ位置を集めて Detection[] を返す」だけの純関数として実装する。
  */
 
-let seq = 0;
-
 export function makeDetection(params: {
   type: string;
   label: string;
@@ -18,11 +16,13 @@ export function makeDetection(params: {
   reason: string;
   display?: string;
 }): Detection {
-  seq += 1;
+  const { display, ...rest } = params;
   return {
-    id: `${params.type}-${seq}`,
-    display: params.display ?? partialMask(params.original),
-    ...params,
+    ...rest,
+    // IDは検出位置から決まる安定値にする（同じ入力を再チェックしても同じIDになり、
+    // ReactのkeyがぶれてUIが再マウントされるのを防ぐ）
+    id: `${params.type}-${params.start}-${params.end}`,
+    display: display ?? partialMask(params.original),
   };
 }
 

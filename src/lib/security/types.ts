@@ -7,7 +7,12 @@
 
 export type Severity = "low" | "medium" | "high" | "critical";
 
-export type RiskLevel = Severity | "safe";
+/**
+ * 画面に表示する4段階のリスクレベル。
+ * detector 個別の severity（4段階）とは別物で、medium は表示上 low へ丸める。
+ * UIの表示段階と型を一致させ、到達しない分岐を作らないための定義。
+ */
+export type RiskLevel = "safe" | "low" | "high" | "critical";
 
 export type Detection = {
   /** 検出ごとの一意ID（type + 連番） */
