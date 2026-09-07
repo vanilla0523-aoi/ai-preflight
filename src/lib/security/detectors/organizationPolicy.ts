@@ -14,6 +14,10 @@ export const detectOrganizationPolicy: Detector = (text) => {
 
   for (const rule of organizationRules) {
     for (const keyword of rule.keywords) {
+      // 空文字キーワードは indexOf が常に 0 を返し、探索位置が進まず無限ループになる。
+      // 設定ファイルは人が編集する前提なので、ここで防御的に弾く。
+      if (!keyword.trim()) continue;
+
       const needle = keyword.toLowerCase();
       let from = 0;
       let idx: number;
@@ -33,7 +37,8 @@ export const detectOrganizationPolicy: Detector = (text) => {
             reason: `「${keyword}」は社内ルール（${rule.label}）として登録されています。${rule.message}`,
           })
         );
-        from = idx + keyword.length;
+        // 最低1文字は進めて、探索が止まらないことを保証する
+        from = idx + Math.max(1, keyword.length);
       }
     }
   }
